@@ -1,9 +1,7 @@
 #pragma warning disable SYSLIB0011
+#pragma warning disable IDE0090
 
-using System;
 using System.Runtime.Serialization.Formatters.Binary;
-using System.Collections.Generic;
-using System.IO;
 using CommandLine;
 using CommandLine.Text;
 using CUE4Parse.FileProvider;
@@ -75,11 +73,11 @@ namespace SquadHeightmapRipper
 		private int MaxX = int.MinValue;
 		private int MaxY = int.MinValue;
 
-		IPackage package;
+		readonly IPackage package;
 
-		public Layer(DefaultFileProvider provider, string umap_path)
+		public Layer(IPackage package)
 		{
-			package = provider.LoadPackage(umap_path);
+			this.package = package;
 		}
 
 		public Heightmap GetHeightmap()
@@ -94,6 +92,39 @@ namespace SquadHeightmapRipper
 			return BuildHeightMap(LandscapeComponents);
 		}
 
+		public bool HasHeightmap()
+		{
+			int i = 0;
+			UObject? export;
+			while ((export = package.GetExport(i++)) != null)
+			{
+				if (export.ExportType == "LandscapeComponent")
+				{
+					ushort valid = 0;
+
+					foreach (var Property in export.Properties)
+					{
+						switch (Property.Name.PlainText)
+						{
+							case "HeightmapTexture":
+							case "SectionBaseX":
+							case "SectionBaseY":
+							case "ComponentSizeQuads":
+							case "SubsectionSizeQuads":
+							case "NumSubsections":
+							case "HeightmapScaleBias":
+								valid++;
+								break;
+						}
+					}
+
+					if (valid == 7) return true;
+				}
+			}
+
+			return false;
+		}
+
 		private static SortedDictionary<Vec2, LandscapeComponent> ExtractLandscapeComponents(IEnumerable<UObject> exports)
 		{
 			SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents = new SortedDictionary<Vec2, LandscapeComponent>();
@@ -103,6 +134,8 @@ namespace SquadHeightmapRipper
 				if (SerializedLandscapeComponent.ExportType != "LandscapeComponent") continue;
 
 				LandscapeComponent Extracted = new LandscapeComponent();
+
+				ushort valid = 0;
 
 				foreach (var Property in SerializedLandscapeComponent.Properties)
 				{
@@ -138,9 +171,15 @@ namespace SquadHeightmapRipper
 							FVector4 scale_bias = (FVector4)((UScriptStruct)Property.Tag!.GenericValue!).StructType;
 							Extracted.HeightmapScaleBias = new FVec4(scale_bias.X, scale_bias.Y, scale_bias.Z, scale_bias.W);
 							break;
+
+						default:
+							continue;
 					}
 
+					valid++;
 				}
+
+				if (valid != 7) continue;
 
 				Vec2 XY = new Vec2(
 					Extracted.SectionBaseX / Extracted.ComponentSizeQuads,
@@ -266,7 +305,7 @@ namespace SquadHeightmapRipper
 		}
 	}
 
-	public class SquadHeightmapRipper
+	public class SquadHeightmapRipper : IDisposable
 	{
 		private readonly DefaultFileProvider provider;
 
@@ -283,7 +322,18 @@ namespace SquadHeightmapRipper
 
 		public Heightmap ExportHeightMap(string umap_path)
 		{
-			return new Layer(provider, umap_path).GetHeightmap();
+			return new Layer(provider.LoadPackage(umap_path)).GetHeightmap();
+		}
+
+		public IEnumerable<string> GetUMaps()
+		{
+			return provider.Files.Keys.Where(key => key.EndsWith(".umap"));
+		}
+
+		public void Dispose()
+		{
+			provider.Dispose();
+			GC.SuppressFinalize(this);
 		}
 	}
 
@@ -297,7 +347,7 @@ namespace SquadHeightmapRipper
 			[Option('p', "paks", Required = true, HelpText = "Path of directory containing pak files")]
 			public string? Paks { get; set; }
 
-			[Option('m', "umap", Required = true, HelpText = "Path of umap to extract heightmap from")]
+			[Option('m', "umap", Required = false, HelpText = "Path of umap to extract heightmap from; if not provided a list of found umaps will be output")]
 			public string? Umap { get; set; }
 		}
 
@@ -308,13 +358,25 @@ namespace SquadHeightmapRipper
 				var result = new Parser(with => with.HelpWriter = null).ParseArguments<Options>(args);
 				result.WithParsed(o =>
 				{
-					Heightmap Heightmap = new SquadHeightmapRipper(o.Paks!, o.AES).ExportHeightMap(o.Umap!);
+					using SquadHeightmapRipper ripper = new SquadHeightmapRipper(o.Paks!, o.AES);
 
-					using Stream Stdout = Console.OpenStandardOutput();
-					BinaryFormatter BinFmt = new BinaryFormatter();
-					BinFmt.Serialize(Stdout, Heightmap.Width);
-					BinFmt.Serialize(Stdout, Heightmap.Height);
-					BinFmt.Serialize(Stdout, Heightmap.Data);
+					if (o.Umap != null)
+					{
+						Heightmap Heightmap = ripper.ExportHeightMap(o.Umap);
+
+						using Stream Stdout = Console.OpenStandardOutput();
+						BinaryFormatter BinFmt = new BinaryFormatter();
+						BinFmt.Serialize(Stdout, Heightmap.Width);
+						BinFmt.Serialize(Stdout, Heightmap.Height);
+						BinFmt.Serialize(Stdout, Heightmap.Data);
+					}
+					else
+					{
+						foreach (var path in ripper.GetUMaps())
+						{
+							Console.WriteLine(path);
+						}
+					}
 				})
 				.WithNotParsed(errs =>
 				{
