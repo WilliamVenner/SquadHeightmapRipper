@@ -1,0 +1,66 @@
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: '6.0.x'
+
+    - name: Build
+      run: dotnet publish -c Release -r linux-x64 -p:PublishSingleFile=true -p:PublishTrimmed=true --self-contained true
+
+    - name: Strip
+      run: |
+        strip UE4HeightmapRipper/bin/Release/net6.0/linux-x64/publish/UE4HeightmapRipper
+        strip UE4HeightmapRipper/bin/Release/net6.0/linux-x64/publish/CUE4Parse-Natives.so
+
+    - name: Zip
+      run: zip -9 -j UE4HeightmapRipper-linux64.zip UE4HeightmapRipper/bin/Release/net6.0/linux-x64/publish/UE4HeightmapRipper UE4HeightmapRipper/bin/Release/net6.0/linux-x64/publish/CUE4Parse-Natives.so
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: UE4HeightmapRipper-linux64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
+
+    - uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: '6.0.x'
+
+    - name: Build
+      run: dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:PublishTrimmed=true --self-contained true
+
+    - name: Zip
+      run: |
+        copy UE4HeightmapRipper\bin\Release\net6.0\win-x64\publish\UE4HeightmapRipper.exe UE4HeightmapRipper.exe
+        copy UE4HeightmapRipper\bin\Release\net6.0\win-x64\publish\CUE4Parse-Natives.dll CUE4Parse-Natives.dll
+        tar.exe -a -c -f UE4HeightmapRipper-win64.zip UE4HeightmapRipper.exe CUE4Parse-Natives.dll
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: UE4HeightmapRipper-win64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
