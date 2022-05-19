@@ -207,8 +207,7 @@ namespace SquadHeightmapRipper
 			{
 				Parallel.For(ComponentIndexX1, ComponentIndexX2 + 1, ComponentIndexX =>
 				{
-					LandscapeComponent? Component = LandscapeComponents[new Vec2(ComponentIndexX, ComponentIndexY)];
-					if (Component == null) return;
+					if (!LandscapeComponents.TryGetValue(new Vec2(ComponentIndexX, ComponentIndexY), out LandscapeComponent? Component) || Component == null) return;
 
 					// Find coordinates of box that lies inside Component
 					int ComponentX1 = Math.Clamp(MinX - ComponentIndexX * Component.ComponentSizeQuads, 0, Component.ComponentSizeQuads);
