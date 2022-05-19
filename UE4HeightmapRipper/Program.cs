@@ -1,7 +1,6 @@
 #pragma warning disable SYSLIB0011
 #pragma warning disable IDE0090
 
-using System.Runtime.Serialization.Formatters.Binary;
 using CommandLine;
 using CommandLine.Text;
 using CUE4Parse.FileProvider;
@@ -202,21 +201,14 @@ namespace SquadHeightmapRipper
 				return Heightmap;
 			}
 
-			int ComponentSizeQuads = 0;
-			foreach (var Component in LandscapeComponents)
-			{
-				ComponentSizeQuads = Component.Value.ComponentSizeQuads;
-				break;
-			}
+			CalcComponentIndicesNoOverlap(MinX, MinY, MaxX, MaxY, LandscapeComponents.First().Value.ComponentSizeQuads, out int ComponentIndexX1, out int ComponentIndexY1, out int ComponentIndexX2, out int ComponentIndexY2);
 
-			CalcComponentIndicesNoOverlap(MinX, MinY, MaxX, MaxY, ComponentSizeQuads, out int ComponentIndexX1, out int ComponentIndexY1, out int ComponentIndexX2, out int ComponentIndexY2);
-
-			for (int ComponentIndexY = ComponentIndexY1; ComponentIndexY <= ComponentIndexY2; ComponentIndexY++)
+			Parallel.For(ComponentIndexY1, ComponentIndexY2 + 1, ComponentIndexY =>
 			{
-				for (int ComponentIndexX = ComponentIndexX1; ComponentIndexX <= ComponentIndexX2; ComponentIndexX++)
+				Parallel.For(ComponentIndexX1, ComponentIndexX2 + 1, ComponentIndexX =>
 				{
 					LandscapeComponent? Component = LandscapeComponents[new Vec2(ComponentIndexX, ComponentIndexY)];
-					if (Component == null) continue;
+					if (Component == null) return;
 
 					// Find coordinates of box that lies inside Component
 					int ComponentX1 = Math.Clamp(MinX - ComponentIndexX * Component.ComponentSizeQuads, 0, Component.ComponentSizeQuads);
@@ -234,8 +226,8 @@ namespace SquadHeightmapRipper
 					{
 						for (int SubIndexX = SubIndexX1; SubIndexX <= SubIndexX2; SubIndexX++)
 						{
-							// Find coordinates of box that lies inside subsection
-							int SubX1 = Math.Clamp(ComponentX1 - Component.SubsectionSizeQuads * SubIndexX, 0, Component.SubsectionSizeQuads);
+						// Find coordinates of box that lies inside subsection
+						int SubX1 = Math.Clamp(ComponentX1 - Component.SubsectionSizeQuads * SubIndexX, 0, Component.SubsectionSizeQuads);
 							int SubY1 = Math.Clamp(ComponentY1 - Component.SubsectionSizeQuads * SubIndexY, 0, Component.SubsectionSizeQuads);
 							int SubX2 = Math.Clamp(ComponentX2 - Component.SubsectionSizeQuads * SubIndexX, 0, Component.SubsectionSizeQuads);
 							int SubY2 = Math.Clamp(ComponentY2 - Component.SubsectionSizeQuads * SubIndexY, 0, Component.SubsectionSizeQuads);
@@ -266,8 +258,8 @@ namespace SquadHeightmapRipper
 							}
 						}
 					}
-				}
-			}
+				});
+			});
 
 			return Heightmap;
 		}
@@ -365,10 +357,13 @@ namespace SquadHeightmapRipper
 						Heightmap Heightmap = ripper.ExportHeightMap(o.Umap);
 
 						using Stream Stdout = Console.OpenStandardOutput();
-						BinaryFormatter BinFmt = new BinaryFormatter();
-						BinFmt.Serialize(Stdout, Heightmap.Width);
-						BinFmt.Serialize(Stdout, Heightmap.Height);
-						BinFmt.Serialize(Stdout, Heightmap.Data);
+						using BinaryWriter BinWrite = new BinaryWriter(Stdout);
+						BinWrite.Write(Heightmap.Width);
+						BinWrite.Write(Heightmap.Height);
+						foreach (short height in Heightmap.Data)
+						{
+							BinWrite.Write(height);
+						}
 					}
 					else
 					{
