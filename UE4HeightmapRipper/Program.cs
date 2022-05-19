@@ -79,7 +79,7 @@ namespace SquadHeightmapRipper
 			this.package = package;
 		}
 
-		public Heightmap GetHeightmap()
+		public Heightmap? GetHeightmap()
 		{
 			var LandscapeComponents = ExtractLandscapeComponents(package.GetExports());
 
@@ -191,14 +191,14 @@ namespace SquadHeightmapRipper
 			return LandscapeComponents;
 		}
 
-		private Heightmap BuildHeightMap(SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents)
+		private Heightmap? BuildHeightMap(SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents)
 		{
 			int Stride = (1 + MaxX - MinX);
 			Heightmap Heightmap = new Heightmap((uint)((MaxX - MinX) + 1), (uint)((MaxY - MinY) + 1));
 
-			if (LandscapeComponents.Count == 0)
+			if (LandscapeComponents.Count == 0 || Heightmap.Width <= 2 || Heightmap.Height <= 2)
 			{
-				return Heightmap;
+				return null;
 			}
 
 			CalcComponentIndicesNoOverlap(MinX, MinY, MaxX, MaxY, LandscapeComponents.First().Value.ComponentSizeQuads, out int ComponentIndexX1, out int ComponentIndexY1, out int ComponentIndexX2, out int ComponentIndexY2);
@@ -217,7 +217,7 @@ namespace SquadHeightmapRipper
 					int ComponentY2 = Math.Clamp(MaxY - ComponentIndexY * Component.ComponentSizeQuads, 0, Component.ComponentSizeQuads);
 
 					// Find subsection range for this box
-					int SubIndexX1 = Math.Clamp((ComponentX1 - 1) / Component.SubsectionSizeQuads, 0, Component.NumSubsections - 1);    // -1 because we need to pick up vertices shared between subsections
+					int SubIndexX1 = Math.Clamp((ComponentX1 - 1) / Component.SubsectionSizeQuads, 0, Component.NumSubsections - 1); // -1 because we need to pick up vertices shared between subsections
 					int SubIndexY1 = Math.Clamp((ComponentY1 - 1) / Component.SubsectionSizeQuads, 0, Component.NumSubsections - 1);
 					int SubIndexX2 = Math.Clamp(ComponentX2 / Component.SubsectionSizeQuads, 0, Component.NumSubsections - 1);
 					int SubIndexY2 = Math.Clamp(ComponentY2 / Component.SubsectionSizeQuads, 0, Component.NumSubsections - 1);
@@ -312,7 +312,7 @@ namespace SquadHeightmapRipper
 			}
 		}
 
-		public Heightmap ExportHeightMap(string umap_path)
+		public Heightmap? ExportHeightMap(string umap_path)
 		{
 			return new Layer(provider.LoadPackage(umap_path)).GetHeightmap();
 		}
@@ -354,15 +354,22 @@ namespace SquadHeightmapRipper
 
 					if (o.Umap != null)
 					{
-						Heightmap Heightmap = ripper.ExportHeightMap(o.Umap);
-
 						using Stream Stdout = Console.OpenStandardOutput();
 						using BinaryWriter BinWrite = new BinaryWriter(Stdout);
-						BinWrite.Write(Heightmap.Width);
-						BinWrite.Write(Heightmap.Height);
-						foreach (short height in Heightmap.Data)
+
+						Heightmap? Heightmap = ripper.ExportHeightMap(o.Umap);
+						if (Heightmap != null)
 						{
-							BinWrite.Write(height);
+							BinWrite.Write(Heightmap.Value.Width);
+							BinWrite.Write(Heightmap.Value.Height);
+							foreach (short height in Heightmap.Value.Data)
+							{
+								BinWrite.Write(height);
+							}
+						} else
+						{
+							BinWrite.Write(0);
+							BinWrite.Write(0);
 						}
 					}
 					else
