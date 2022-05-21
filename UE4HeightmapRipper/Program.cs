@@ -12,6 +12,7 @@ using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.Core.Math;
+using Newtonsoft.Json;
 
 namespace SquadHeightmapRipper
 {
@@ -73,22 +74,26 @@ namespace SquadHeightmapRipper
 		private int MaxY = int.MinValue;
 
 		readonly IPackage package;
+		FVector? MapTextureCorner0;
+		FVector? MapTextureCorner1;
 
-		public Layer(IPackage package)
+		public Layer(IPackage package, FVector? MapTextureCorner0, FVector? MapTextureCorner1)
 		{
 			this.package = package;
+			this.MapTextureCorner0 = MapTextureCorner0;
+			this.MapTextureCorner1 = MapTextureCorner1;
 		}
 
 		public Heightmap? GetHeightmap()
 		{
-			var LandscapeComponents = ExtractLandscapeComponents(package.GetExports());
+			(var LandscapeComponents, FVector? Scale) = ExtractLandscapeComponents(package.GetExports());
 
 			foreach (var LandscapeComponent in LandscapeComponents)
 			{
 				LandscapeComponent.Value.GetLandscapeExtent(ref MinX, ref MinY, ref MaxX, ref MaxY);
 			}
 
-			return BuildHeightMap(LandscapeComponents);
+			return BuildHeightMap(LandscapeComponents, Scale, MapTextureCorner0, MapTextureCorner1);
 		}
 
 		public bool HasHeightmap()
@@ -124,13 +129,28 @@ namespace SquadHeightmapRipper
 			return false;
 		}
 
-		private static SortedDictionary<Vec2, LandscapeComponent> ExtractLandscapeComponents(IEnumerable<UObject> exports)
+		private static (SortedDictionary<Vec2, LandscapeComponent>, FVector?) ExtractLandscapeComponents(IEnumerable<UObject> exports)
 		{
 			SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents = new SortedDictionary<Vec2, LandscapeComponent>();
+			FVector? Scale = null;
 
 			foreach (var SerializedLandscapeComponent in exports)
 			{
 				if (SerializedLandscapeComponent.ExportType != "LandscapeComponent") continue;
+
+				if (!Scale.HasValue)
+				{
+					try
+					{
+						var Property = SerializedLandscapeComponent.Properties.Find(Property => Property.Name.PlainText == "AttachParent")!;
+						FPackageIndex pkg_index = (FPackageIndex)Property.Tag!.GenericValue!;
+						UObject AttachParent = pkg_index!.Load()!;
+						Property = AttachParent.Properties.Find(Property => Property.Name.PlainText == "RelativeScale3D")!;
+						Scale = (FVector)((UScriptStruct)Property.Tag!.GenericValue!).StructType;
+					}
+					catch (Exception)
+					{}
+				}
 
 				LandscapeComponent Extracted = new LandscapeComponent();
 
@@ -188,13 +208,13 @@ namespace SquadHeightmapRipper
 				LandscapeComponents.Add(XY, Extracted);
 			}
 
-			return LandscapeComponents;
+			return (LandscapeComponents, Scale);
 		}
 
-		private Heightmap? BuildHeightMap(SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents)
+		private Heightmap? BuildHeightMap(SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents, FVector? Scale, FVector? MapTextureCorner0, FVector? MapTextureCorner1)
 		{
 			int Stride = (1 + MaxX - MinX);
-			Heightmap Heightmap = new Heightmap((uint)((MaxX - MinX) + 1), (uint)((MaxY - MinY) + 1));
+			Heightmap Heightmap = new Heightmap((uint)((MaxX - MinX) + 1), (uint)((MaxY - MinY) + 1), Scale, MapTextureCorner0, MapTextureCorner1);
 
 			if (LandscapeComponents.Count == 0 || Heightmap.Width <= 2 || Heightmap.Height <= 2)
 			{
@@ -207,7 +227,8 @@ namespace SquadHeightmapRipper
 			{
 				Parallel.For(ComponentIndexX1, ComponentIndexX2 + 1, ComponentIndexX =>
 				{
-					if (!LandscapeComponents.TryGetValue(new Vec2(ComponentIndexX, ComponentIndexY), out LandscapeComponent? Component) || Component == null) return;
+					LandscapeComponent? Component;
+					if (!LandscapeComponents.TryGetValue(new Vec2(ComponentIndexX, ComponentIndexY), out Component) || Component == null) return;
 
 					// Find coordinates of box that lies inside Component
 					int ComponentX1 = Math.Clamp(MinX - ComponentIndexX * Component.ComponentSizeQuads, 0, Component.ComponentSizeQuads);
@@ -225,8 +246,8 @@ namespace SquadHeightmapRipper
 					{
 						for (int SubIndexX = SubIndexX1; SubIndexX <= SubIndexX2; SubIndexX++)
 						{
-						// Find coordinates of box that lies inside subsection
-						int SubX1 = Math.Clamp(ComponentX1 - Component.SubsectionSizeQuads * SubIndexX, 0, Component.SubsectionSizeQuads);
+							// Find coordinates of box that lies inside subsection
+							int SubX1 = Math.Clamp(ComponentX1 - Component.SubsectionSizeQuads * SubIndexX, 0, Component.SubsectionSizeQuads);
 							int SubY1 = Math.Clamp(ComponentY1 - Component.SubsectionSizeQuads * SubIndexY, 0, Component.SubsectionSizeQuads);
 							int SubX2 = Math.Clamp(ComponentX2 - Component.SubsectionSizeQuads * SubIndexX, 0, Component.SubsectionSizeQuads);
 							int SubY2 = Math.Clamp(ComponentY2 - Component.SubsectionSizeQuads * SubIndexY, 0, Component.SubsectionSizeQuads);
@@ -288,10 +309,17 @@ namespace SquadHeightmapRipper
 		public uint Height;
 		public ushort[] Data;
 
-		public Heightmap(uint Width, uint Height)
+		public FVector? Scale = null;
+		public FVector? MapTextureCorner0 = null;
+		public FVector? MapTextureCorner1 = null;
+
+		public Heightmap(uint Width, uint Height, FVector? Scale, FVector? MapTextureCorner0, FVector? MapTextureCorner1)
 		{
 			this.Width = Width;
 			this.Height = Height;
+			this.Scale = Scale;
+			this.MapTextureCorner0 = MapTextureCorner0;
+			this.MapTextureCorner1 = MapTextureCorner1;
 			Data = new ushort[Width * Height];
 		}
 	}
@@ -303,6 +331,7 @@ namespace SquadHeightmapRipper
 		public SquadHeightmapRipper(string paks_path, string? aes_key)
 		{
 			provider = new DefaultFileProvider(paks_path, SearchOption.TopDirectoryOnly);
+			provider.UseLazySerialization = true;
 			provider.Initialize();
 
 			if (aes_key != null)
@@ -311,9 +340,53 @@ namespace SquadHeightmapRipper
 			}
 		}
 
+		private (FVector?, FVector?) FindMapTextureCorners(string umap_path)
+		{
+			int LastSlash = umap_path.LastIndexOf('/');
+			if (LastSlash == -1) return (null, null);
+
+			string gameplay_layers_path = umap_path.Substring(0, LastSlash) + "/Gameplay_Layers";
+
+			string? gameplay_layer = provider.Files.Keys.Where(k => k.EndsWith(".umap") && k.StartsWith(gameplay_layers_path)).FirstOrDefault();
+			if (gameplay_layer == null) return (null, null);
+
+			FVector? MapTextureCorner0 = null;
+			FVector? MapTextureCorner1 = null;
+
+			IPackage gameplay_layer_pkg = provider.LoadPackage(gameplay_layer);
+			foreach (var export in gameplay_layer_pkg.GetExports())
+			{
+				if (export.Outer != null && export.ExportType == "SceneComponent" && export.Name == "DefaultSceneRoot")
+				{
+					FVector MapTextureCorner;
+					try
+					{
+						FPropertyTag? Property = export.Properties.Find(Property => Property.Name.PlainText == "RelativeLocation")!;
+						MapTextureCorner = (FVector)((UScriptStruct)Property.Tag!.GenericValue!).StructType!;
+					} catch(Exception)
+					{
+						continue;
+					}
+
+					if (export.Outer.Name == "MapTextureCorner0")
+					{
+						MapTextureCorner0 = MapTextureCorner;
+						if (MapTextureCorner1.HasValue) break;
+					} else if (export.Outer.Name == "MapTextureCorner1")
+					{
+						MapTextureCorner1 = MapTextureCorner;
+						if (MapTextureCorner0.HasValue) break;
+					}
+				}
+			}
+
+			return (MapTextureCorner0, MapTextureCorner1);
+		}
+
 		public Heightmap? ExportHeightMap(string umap_path)
 		{
-			return new Layer(provider.LoadPackage(umap_path)).GetHeightmap();
+			(FVector? MapTextureCorner0, FVector? MapTextureCorner1) = FindMapTextureCorners(umap_path);
+			return new Layer(provider.LoadPackage(umap_path), MapTextureCorner0, MapTextureCorner1).GetHeightmap();
 		}
 
 		public IEnumerable<string> GetUMaps()
@@ -357,15 +430,54 @@ namespace SquadHeightmapRipper
 						using BinaryWriter BinWrite = new BinaryWriter(Stdout);
 
 						Heightmap? Heightmap = ripper.ExportHeightMap(o.Umap);
-						if (Heightmap != null)
+						if (Heightmap.HasValue)
 						{
 							BinWrite.Write(Heightmap.Value.Width);
 							BinWrite.Write(Heightmap.Value.Height);
+
+							if (Heightmap.Value.Scale.HasValue)
+							{
+								BinWrite.Write(Heightmap.Value.Scale.Value.X);
+								BinWrite.Write(Heightmap.Value.Scale.Value.Y);
+								BinWrite.Write(Heightmap.Value.Scale.Value.Z);
+							}
+							else
+							{
+								BinWrite.Write(100.0f);
+								BinWrite.Write(100.0f);
+								BinWrite.Write(100.0f);
+							}
+
+							if (Heightmap.Value.MapTextureCorner0.HasValue)
+							{
+								BinWrite.Write(true);
+								BinWrite.Write(Heightmap.Value.MapTextureCorner0.Value.X);
+								BinWrite.Write(Heightmap.Value.MapTextureCorner0.Value.Y);
+								BinWrite.Write(Heightmap.Value.MapTextureCorner0.Value.Z);
+							}
+							else
+							{
+								BinWrite.Write(false);
+							}
+
+							if (Heightmap.Value.MapTextureCorner1.HasValue)
+							{
+								BinWrite.Write(true);
+								BinWrite.Write(Heightmap.Value.MapTextureCorner1.Value.X);
+								BinWrite.Write(Heightmap.Value.MapTextureCorner1.Value.Y);
+								BinWrite.Write(Heightmap.Value.MapTextureCorner1.Value.Z);
+							}
+							else
+							{
+								BinWrite.Write(false);
+							}
+
 							foreach (short height in Heightmap.Value.Data)
 							{
 								BinWrite.Write(height);
 							}
-						} else
+						}
+						else
 						{
 							BinWrite.Write(0);
 							BinWrite.Write(0);
