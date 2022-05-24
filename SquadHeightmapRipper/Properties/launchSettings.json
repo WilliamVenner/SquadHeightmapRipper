@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "UE4HeightmapRipper": {
+    "SquadHeightmapRipper": {
       "commandName": "Project",
       "commandLineArgs": "-p \"Q:\\Steam\\steamapps\\common\\Squad\\SquadGame\\Content\\Paks\" -k \"0xBC0C07592D6B17BAB88B83A68583A053A6D9A0450CB54ABF5C231DBA59A7466B\""
     }

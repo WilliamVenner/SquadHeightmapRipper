@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.2.32516.85
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "UE4HeightmapRipper", "UE4HeightmapRipper\UE4HeightmapRipper.csproj", "{C243E38E-72A4-45ED-9502-E871202F75B2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SquadHeightmapRipper", "SquadHeightmapRipper\SquadHeightmapRipper.csproj", "{C243E38E-72A4-45ED-9502-E871202F75B2}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CUE4Parse", "CUE4Parse\CUE4Parse\CUE4Parse.csproj", "{24F1508E-3A17-4D06-8FBC-538FA3D4CA5B}"
 EndProject

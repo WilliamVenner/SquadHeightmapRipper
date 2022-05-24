@@ -1,16 +1,16 @@
-Basic C# library/console application for ripping heightmaps from UE4 maps.
+Basic C# library/console application for ripping heightmaps from Squad.
 
-This was made for [Squad Mortar Helper](https://github.com/WilliamVenner/squad-mortar-helper) and is missing extendability features that would be appropriate for other games and environments. Currently the program only supports zero to one AES decryption key and is not optimised for bulk processing. **Please feel free to fork and make your own changes to the code if needed, PRs are also appreciated.**
+This was made for [Squad Mortar Helper](https://github.com/WilliamVenner/squad-mortar-helper)!
 
-_I don't know if this works for UE5._
+This could also be easily adapted for ripping heightmaps from other UE4 games.
 
 # Usage
 
 **Before building, don't forget to `git submodule update --recursive --remote --init`!**
 
 ```
-UE4HeightmapRipper 1.0.0
-Copyright (C) 2022 UE4HeightmapRipper
+SquadHeightmapRipper 2.0.1
+Copyright (C) 2022 William Venner
 
   -k, --aes     AES decryption key for packages
   -p, --paks    Required. Path of directory containing pak files
@@ -23,11 +23,7 @@ Copyright (C) 2022 UE4HeightmapRipper
 
 In the event of an error, the program will exit with code 1 and print the error message to stderr.
 
-In the event of success, the program will exit with code 0 and output the following to stdout:
-
-1. Little endian 4-byte unsigned integer of width
-2. Little endian 4-byte unsigned integer of height
-3. Little endian 2-byte unsigned short of heightmap data
+In the event of success, the program will exit with code 0 and output a bunch of [relevant data](SquadHeightmapRipper/Program.cs#L448) to stdout.
 
 # License
 
