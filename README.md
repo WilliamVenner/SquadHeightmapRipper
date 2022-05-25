@@ -9,11 +9,11 @@ This could also be easily adapted for ripping heightmaps from other UE4 games.
 **Before building, don't forget to `git submodule update --recursive --remote --init`!**
 
 ```
-SquadHeightmapRipper 3.0.0
+SquadHeightmapRipper 4.0.0
 Copyright (C) 2022 William Venner
 
   -k, --aes     AES decryption key for packages
-  -p, --paks    Required. Path of directory containing pak files
+  -p, --paks    Required. List of paths of directories containing pak files
   -m, --umap    Path of umap to extract heightmap from; if not provided a list
                 of found umaps will be output
   --help        Display this help screen.

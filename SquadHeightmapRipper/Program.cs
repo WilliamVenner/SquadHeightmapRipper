@@ -12,6 +12,7 @@ using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.Core.Math;
+using System;
 
 namespace SquadHeightmapRipper;
 
@@ -73,14 +74,10 @@ class Layer
 	private int MaxY = int.MinValue;
 
 	readonly IPackage package;
-	FVector? MapTextureCorner0;
-	FVector? MapTextureCorner1;
 
-	public Layer(IPackage package, FVector? MapTextureCorner0, FVector? MapTextureCorner1)
+	public Layer(IPackage package)
 	{
 		this.package = package;
-		this.MapTextureCorner0 = MapTextureCorner0;
-		this.MapTextureCorner1 = MapTextureCorner1;
 	}
 
 	public Heightmap? GetHeightmap()
@@ -92,7 +89,7 @@ class Layer
 			LandscapeComponent.Value.GetLandscapeExtent(ref MinX, ref MinY, ref MaxX, ref MaxY);
 		}
 
-		return BuildHeightMap(LandscapeComponents, Scale, MapTextureCorner0, MapTextureCorner1);
+		return BuildHeightMap(LandscapeComponents, Scale);
 	}
 
 	public bool HasHeightmap()
@@ -148,7 +145,7 @@ class Layer
 					Scale = (FVector)((UScriptStruct)Property.Tag!.GenericValue!).StructType;
 				}
 				catch (Exception)
-				{}
+				{ }
 			}
 
 			LandscapeComponent Extracted = new LandscapeComponent();
@@ -210,10 +207,10 @@ class Layer
 		return (LandscapeComponents, Scale);
 	}
 
-	private Heightmap? BuildHeightMap(SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents, FVector? Scale, FVector? MapTextureCorner0, FVector? MapTextureCorner1)
+	private Heightmap? BuildHeightMap(SortedDictionary<Vec2, LandscapeComponent> LandscapeComponents, FVector? Scale)
 	{
 		int Stride = (1 + MaxX - MinX);
-		Heightmap Heightmap = new Heightmap((uint)((MaxX - MinX) + 1), (uint)((MaxY - MinY) + 1), MinX, MaxX, MinY, MaxY, Scale, MapTextureCorner0, MapTextureCorner1);
+		Heightmap Heightmap = new Heightmap((uint)((MaxX - MinX) + 1), (uint)((MaxY - MinY) + 1), MinX, MaxX, MinY, MaxY, Scale);
 
 		if (LandscapeComponents.Count == 0 || Heightmap.Width <= 2 || Heightmap.Height <= 2)
 		{
@@ -313,12 +310,10 @@ public struct Heightmap
 	public int MaxY;
 
 	public FVector? Scale = null;
-	public FVector? MapTextureCorner0 = null;
-	public FVector? MapTextureCorner1 = null;
 
 	public ushort[] Data;
 
-	public Heightmap(uint Width, uint Height, int MinX, int MaxX, int MinY, int MaxY, FVector? Scale, FVector? MapTextureCorner0, FVector? MapTextureCorner1)
+	public Heightmap(uint Width, uint Height, int MinX, int MaxX, int MinY, int MaxY, FVector? Scale)
 	{
 		this.Width = Width;
 		this.Height = Height;
@@ -327,85 +322,52 @@ public struct Heightmap
 		this.MinY = MinY;
 		this.MaxY = MaxY;
 		this.Scale = Scale;
-		this.MapTextureCorner0 = MapTextureCorner0;
-		this.MapTextureCorner1 = MapTextureCorner1;
 		Data = new ushort[Width * Height];
 	}
 }
 
 public class SquadHeightmapRipper : IDisposable
 {
-	private readonly DefaultFileProvider provider;
+	private readonly DefaultFileProvider[] providers;
 
-	public SquadHeightmapRipper(string paks_path, string? aes_key)
+	public SquadHeightmapRipper(IEnumerable<string> paks_paths, string? aes_key)
 	{
-		provider = new DefaultFileProvider(paks_path, SearchOption.TopDirectoryOnly);
-		provider.UseLazySerialization = true;
-		provider.Initialize();
-
-		if (aes_key != null)
+		providers = paks_paths.Select(paks_path =>
 		{
-			provider.SubmitKey(new FGuid(0U), new FAesKey(aes_key));
-		}
+			var provider = new DefaultFileProvider(paks_path, SearchOption.TopDirectoryOnly);
+			provider.UseLazySerialization = true;
+			provider.Initialize();
+
+			if (aes_key != null)
+			{
+				provider.SubmitKey(new FGuid(0U), new FAesKey(aes_key));
+			}
+
+			return provider;
+		}).ToArray();
 	}
 
-	private (FVector?, FVector?) FindMapTextureCorners(string umap_path)
+	private DefaultFileProvider? FindProvider(string umap_path)
 	{
-		int LastSlash = umap_path.LastIndexOf('/');
-		if (LastSlash == -1) return (null, null);
-
-		string gameplay_layers_path = umap_path.Substring(0, LastSlash) + "/Gameplay_Layers";
-
-		string? gameplay_layer = provider.Files.Keys.Where(k => k.EndsWith(".umap") && k.StartsWith(gameplay_layers_path)).FirstOrDefault();
-		if (gameplay_layer == null) return (null, null);
-
-		FVector? MapTextureCorner0 = null;
-		FVector? MapTextureCorner1 = null;
-
-		IPackage gameplay_layer_pkg = provider.LoadPackage(gameplay_layer);
-		foreach (var export in gameplay_layer_pkg.GetExports())
-		{
-			if (export.Outer != null && export.ExportType == "SceneComponent" && export.Name == "DefaultSceneRoot")
-			{
-				FVector MapTextureCorner;
-				try
-				{
-					FPropertyTag? Property = export.Properties.Find(Property => Property.Name.PlainText == "RelativeLocation")!;
-					MapTextureCorner = (FVector)((UScriptStruct)Property.Tag!.GenericValue!).StructType!;
-				} catch(Exception)
-				{
-					continue;
-				}
-
-				if (export.Outer.Name == "MapTextureCorner0")
-				{
-					MapTextureCorner0 = MapTextureCorner;
-					if (MapTextureCorner1.HasValue) break;
-				} else if (export.Outer.Name == "MapTextureCorner1")
-				{
-					MapTextureCorner1 = MapTextureCorner;
-					if (MapTextureCorner0.HasValue) break;
-				}
-			}
-		}
-
-		return (MapTextureCorner0, MapTextureCorner1);
+		return providers.Where(provider => provider.Files.ContainsKey(umap_path)).FirstOrDefault();
 	}
 
 	public Heightmap? ExportHeightMap(string umap_path)
 	{
-		(FVector? MapTextureCorner0, FVector? MapTextureCorner1) = FindMapTextureCorners(umap_path);
-		return new Layer(provider.LoadPackage(umap_path), MapTextureCorner0, MapTextureCorner1).GetHeightmap();
+		DefaultFileProvider? provider = FindProvider(umap_path);
+		if (provider == null) return null;
+
+		return new Layer(provider.LoadPackage(umap_path)).GetHeightmap();
 	}
 
 	public IEnumerable<string> GetUMaps()
 	{
-		return provider.Files.Keys.Where(key => key.EndsWith(".umap"));
+		return providers.SelectMany(provider => provider.Files.Keys.Where(key => key.EndsWith(".umap")));
 	}
 
 	public void Dispose()
 	{
-		provider.Dispose();
+		foreach (var provider in providers) provider.Dispose();
 		GC.SuppressFinalize(this);
 	}
 }
@@ -417,8 +379,8 @@ public class Program
 		[Option('k', "aes", Required = false, HelpText = "AES decryption key for packages")]
 		public string? AES { get; set; }
 
-		[Option('p', "paks", Required = true, HelpText = "Path of directory containing pak files")]
-		public string? Paks { get; set; }
+		[Option('p', "paks", Required = true, HelpText = "List of paths of directories containing pak files")]
+		public IEnumerable<string>? Paks { get; set; }
 
 		[Option('m', "umap", Required = false, HelpText = "Path of umap to extract heightmap from; if not provided a list of found umaps will be output")]
 		public string? Umap { get; set; }
@@ -460,30 +422,6 @@ public class Program
 							BinWrite.Write(100.0f);
 							BinWrite.Write(100.0f);
 							BinWrite.Write(100.0f);
-						}
-
-						if (Heightmap.Value.MapTextureCorner0.HasValue)
-						{
-							BinWrite.Write(true);
-							BinWrite.Write(Heightmap.Value.MapTextureCorner0.Value.X);
-							BinWrite.Write(Heightmap.Value.MapTextureCorner0.Value.Y);
-							BinWrite.Write(Heightmap.Value.MapTextureCorner0.Value.Z);
-						}
-						else
-						{
-							BinWrite.Write(false);
-						}
-
-						if (Heightmap.Value.MapTextureCorner1.HasValue)
-						{
-							BinWrite.Write(true);
-							BinWrite.Write(Heightmap.Value.MapTextureCorner1.Value.X);
-							BinWrite.Write(Heightmap.Value.MapTextureCorner1.Value.Y);
-							BinWrite.Write(Heightmap.Value.MapTextureCorner1.Value.Z);
-						}
-						else
-						{
-							BinWrite.Write(false);
 						}
 
 						foreach (short height in Heightmap.Value.Data)
